@@ -10,4 +10,5 @@ nest_asyncio
 bcrypt
 torch
 torchvision
-
+certifi
+dnspython
