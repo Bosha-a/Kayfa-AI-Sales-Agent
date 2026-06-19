@@ -8,3 +8,5 @@ pydantic-ai
 pymongo
 nest_asyncio
 bcrypt
+torch
+torchvision
