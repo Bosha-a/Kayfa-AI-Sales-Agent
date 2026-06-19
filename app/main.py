@@ -242,12 +242,12 @@ footer {{ visibility: hidden; }}
 """, unsafe_allow_html=True)
 
 
-load_dotenv()
+# load_dotenv()
 
-mongo_uri = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
-qdrant_api_key = st.secrets.get("QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
-qdrant_url = st.secrets.get("QDRANT_URL") or os.getenv("QDRANT_URL")
-groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
+mongo_uri = st.secrets.get("MONGODB_URI") 
+qdrant_api_key = st.secrets.get("QDRANT_API_KEY") 
+qdrant_url = st.secrets.get("QDRANT_URL") 
+groq_api_key = st.secrets.get("GROQ_API_KEY") 
 
 mongo_client = MongoClient(mongo_uri, tls=True, tlsCAFile=certifi.where())
 messages = mongo_client.kayfa.messages
