@@ -1,0 +1,10 @@
+fastembed
+python-dotenv
+qdrant-client
+sentence-transformers
+groq
+streamlit
+pydantic-ai
+pymongo
+nest_asyncio
+bcrypt
