@@ -45,9 +45,9 @@ ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\u
 def dir_class(text: str) -> str:
     return "rtl" if ARABIC_RE.search(text) else "ltr"
 
-with open("../images/kayfa.png", "rb") as f:
+with open("./images/kayfa.png", "rb") as f:
     logo_b64 = base64.b64encode(f.read()).decode()
-with open("../images/kayfa_icon.png", "rb") as f:
+with open("./images/kayfa_icon.png", "rb") as f:
     icon_b64 = base64.b64encode(f.read()).decode()
 
 
