@@ -243,10 +243,10 @@ footer {{ visibility: hidden; }}
 
 load_dotenv()
 
-mongo_client = MongoClient(os.getenv("MONGODB_URI"))
-qdrant_api_key = os.getenv("QDRANT_API_KEY")
-qdrant_url = os.getenv("QDRANT_URL")
-groq_api_key = os.getenv("GROQ_API_KEY")
+mongo_client = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
+qdrant_api_key = st.secrets.get("QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
+qdrant_url = st.secrets.get("QDRANT_URL") or os.getenv("QDRANT_URL")
+groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 
 messages = mongo_client.kayfa.messages
 messages.create_index([("session_id", ASCENDING), ("timestamp", ASCENDING)])

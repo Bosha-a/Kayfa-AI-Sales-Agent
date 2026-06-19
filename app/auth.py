@@ -8,7 +8,10 @@ import base64
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-_client = MongoClient(os.getenv("MONGODB_URI"), serverSelectionTimeoutMS=5000)
+st.secrets.get("MONGO_URI")
+
+mongo_uri = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
+_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
 _coll = _client.Sales_Agent.users
 _coll.create_index([("username", ASCENDING)], unique=True)
 _kayfa_users = _client.kayfa.users
