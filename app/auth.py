@@ -12,7 +12,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 st.secrets.get("MONGO_URI")
 
 mongo_uri = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
-_client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
+_client = MongoClient(mongo_uri, tls=True, tlsCAFile=certifi.where())
 _coll = _client.Sales_Agent.users
 _coll.create_index([("username", ASCENDING)], unique=True)
 _kayfa_users = _client.kayfa.users

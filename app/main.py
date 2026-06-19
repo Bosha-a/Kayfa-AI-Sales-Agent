@@ -249,7 +249,7 @@ qdrant_api_key = st.secrets.get("QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
 qdrant_url = st.secrets.get("QDRANT_URL") or os.getenv("QDRANT_URL")
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 
-mongo_client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
+mongo_client = MongoClient(mongo_uri, tls=True, tlsCAFile=certifi.where())
 messages = mongo_client.kayfa.messages
 messages.create_index([("session_id", ASCENDING), ("timestamp", ASCENDING)])
 
