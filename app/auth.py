@@ -11,7 +11,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 st.secrets.get("MONGO_URI")
 
-mongo_uri = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
+mongo_uri = st.secrets.get("MONGO_URI") 
 _client = MongoClient(mongo_uri, tls=True, tlsCAFile=certifi.where())
 _coll = _client.Sales_Agent.users
 _coll.create_index([("username", ASCENDING)], unique=True)
@@ -25,10 +25,10 @@ ROLE_PERMISSIONS = {
 
 ICON_B64 = None
 
-with open("../images/kayfa.png", "rb") as f:
+with open("./images/kayfa.png", "rb") as f:
     LOGO_B64 = base64.b64encode(f.read()).decode()
 
-with open("../images/kayfa_icon.png", "rb") as f:
+with open("./images/kayfa_icon.png", "rb") as f:
     ICON_B64 = base64.b64encode(f.read()).decode()
 
 
