@@ -140,7 +140,7 @@ def login_form():
         with col:
             username = st.text_input("", placeholder="Username", key="login_user")
             password = st.text_input("", type="password", placeholder="Password", key="login_pass")
-            role_hint = st.selectbox("", ["admin", "sales", "user"], key="login_role", label_visibility="collapsed")
+            role_hint = st.selectbox("Role", ["admin", "sales", "user"], key="login_role", label_visibility="collapsed")
 
             role_map = {"admin": "admin", "sales": "sales", "user": "user"}
             role_val = role_map[role_hint]
