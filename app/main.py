@@ -2,6 +2,7 @@ from datetime import timezone, datetime
 import os
 import re
 import asyncio
+import certifi
 import streamlit as st
 from pydantic_ai.providers.groq import GroqProvider
 from qdrant_client import QdrantClient
@@ -243,11 +244,12 @@ footer {{ visibility: hidden; }}
 
 load_dotenv()
 
-mongo_client = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
+mongo_uri = st.secrets.get("MONGO_URI") or os.getenv("MONGODB_URI")
 qdrant_api_key = st.secrets.get("QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
 qdrant_url = st.secrets.get("QDRANT_URL") or os.getenv("QDRANT_URL")
 groq_api_key = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY")
 
+mongo_client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
 messages = mongo_client.kayfa.messages
 messages.create_index([("session_id", ASCENDING), ("timestamp", ASCENDING)])
 
