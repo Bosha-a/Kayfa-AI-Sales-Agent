@@ -10,3 +10,4 @@ nest_asyncio
 bcrypt
 torch
 torchvision
+
