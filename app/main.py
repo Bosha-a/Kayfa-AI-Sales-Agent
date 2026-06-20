@@ -511,10 +511,10 @@ if st.session_state.page == "crm" and has_crm_access:
     .stAppDeployButton {{ display: none; }}
     footer {{ visibility: hidden; }}
 
-    h1 {{ color: #1a1f3d !important; font-weight: 700 !important; letter-spacing: -0.3px; }}
+    h1 {{ color: white !important; font-weight: 700 !important; letter-spacing: -0.3px; }}
 
     .lead-card {{
-        background: white;
+        background: #1e2130;
         border: 1px solid #e8ecf2;
         border-radius: 16px;
         padding: 24px 28px;
@@ -522,6 +522,7 @@ if st.session_state.page == "crm" and has_crm_access:
         box-shadow: 0 2px 8px rgba(0,0,0,0.04);
         direction: rtl;
         text-align: right;
+
     }}
     .lead-card:hover {{ box-shadow: 0 4px 16px rgba(45,59,224,0.1); }}
     .lead-header {{
@@ -529,7 +530,7 @@ if st.session_state.page == "crm" and has_crm_access:
         margin-bottom: 16px; padding-bottom: 12px;
         border-bottom: 2px solid #f0f2f6;
     }}
-    .lead-name {{ font-size: 18px; font-weight: 700; color: #1a1f3d; }}
+    .lead-name {{ font-size: 18px; font-weight: 700; color: white; }}
     .lead-temp {{
         font-size: 12px; font-weight: 600; padding: 4px 14px; border-radius: 20px;
         text-transform: uppercase; letter-spacing: 0.5px;
@@ -538,8 +539,8 @@ if st.session_state.page == "crm" and has_crm_access:
     .temp-warm {{ background: #fef3c7; color: #d97706; }}
     .temp-cold {{ background: #dbeafe; color: #2563eb; }}
     .lead-field {{ display: flex; gap: 8px; margin-bottom: 6px; font-size: 14px; line-height: 1.7; }}
-    .lead-label {{ font-weight: 600; color: #4552D4; min-width: 110px; }}
-    .lead-value {{ color: #374151; flex: 1; }}
+    .lead-label {{ font-weight: 600; color: white; min-width: 110px; }}
+    .lead-value {{ color: white; flex: 1; }}
     .lead-summary {{ margin-top: 12px; padding: 12px 16px; background: #f8fafc; border-radius: 10px; border-right: 3px solid #4552D4; }}
     .lead-summary p {{ margin: 0; color: #374151; line-height: 1.8; }}
     .lead-meta {{ margin-top: 12px; font-size: 12px; color: #9ca3af; text-align: left; direction: ltr; }}
@@ -551,7 +552,7 @@ if st.session_state.page == "crm" and has_crm_access:
     .badge-signals {{ background: #d1fae5; color: #059669; }}
     .badge-objections {{ background: #fce7f3; color: #db2777; }}
     .stats-box {{
-        background: white; border: 1px solid #e8ecf2; border-radius: 14px;
+        background: #1e2130; border: 1px solid #e8ecf2; border-radius: 14px;
         padding: 20px 24px; text-align: center;
     }}
     .stats-number {{ font-size: 32px; font-weight: 700; color: #4552D4; }}
@@ -562,7 +563,7 @@ if st.session_state.page == "crm" and has_crm_access:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<h1 style='display:flex;align-items:center;gap:10px;color:white;'>📋 CRM — إدارة العملاء المحتملين</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='display:flex;align-items:center;gap:10px;'>📋 CRM — إدارة العملاء المحتملين</h1>", unsafe_allow_html=True)
     leads = list(crm_coll.find().sort("created_at", DESCENDING))
     
 
@@ -575,23 +576,23 @@ if st.session_state.page == "crm" and has_crm_access:
         cold = total - hot - warm
         cols = st.columns(4)
         with cols[0]:
-            st.markdown(f'<div class="stats-box"><div class="stats-number">{total}</div><div class="stats-label">إجمالي العملاء</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:white">{total}</div><div class="stats-label">Total Clients</div></div>', unsafe_allow_html=True)
         with cols[1]:
-            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:#fca5a5">{hot}</div><div class="stats-label">ساخن 🔥</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:white">{hot}</div><div class="stats-label">Very Interested 🔥</div></div>', unsafe_allow_html=True)
         with cols[2]:
-            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:#fcd34d">{warm}</div><div class="stats-label">دافئ ☀️</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:white">{warm}</div><div class="stats-label">Interested ☀️</div></div>', unsafe_allow_html=True)
         with cols[3]:
-            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:#9ca3af">{cold}</div><div class="stats-label">بارد ❄️</div></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="stats-box"><div class="stats-number" style="color:white">{cold}</div><div class="stats-label">Asking ❄️</div></div>', unsafe_allow_html=True)
 
-        temp_filter = st.selectbox("تصفية حسب درجة الحماس", ["الكل", "ساخن", "دافئ", "بارد"])
-        search = st.text_input("🔍 بحث بالاسم أو رقم التواصل", "").strip().lower()
+        temp_filter = st.selectbox("📊 Filter by level of enthusiasm", ["All", "Very Interested", "Interested", "Asking"])
+        search = st.text_input("🔍Search with Name or Phone Number", "").strip().lower()
 
         filtered = leads
-        if temp_filter == "ساخن":
+        if temp_filter == "Very Interested":
             filtered = [l for l in filtered if l.get("lead_temperature", "").strip().lower() == "hot"]
-        elif temp_filter == "دافئ":
+        elif temp_filter == "Interested":
             filtered = [l for l in filtered if l.get("lead_temperature", "").strip().lower() == "warm"]
-        elif temp_filter == "بارد":
+        elif temp_filter == "Asking":
             filtered = [l for l in filtered if l.get("lead_temperature", "").strip().lower() not in ("hot", "warm")]
         if search:
             filtered = [l for l in filtered if search in l.get("name", "").lower() or search in l.get("phone", "").lower()]
@@ -601,7 +602,7 @@ if st.session_state.page == "crm" and has_crm_access:
         for lead in filtered:
             temp = lead.get("lead_temperature", "").strip().lower()
             temp_class = "temp-hot" if temp == "hot" else "temp-warm" if temp == "warm" else "temp-cold"
-            temp_label = "ساخن 🔥" if temp == "hot" else "دافئ ☀️" if temp == "warm" else "بارد ❄️"
+            temp_label = "Very Interested 🔥" if temp == "hot" else "Interested ☀️" if temp == "warm" else "Asking ❄️"
             created = lead.get("created_at", datetime.now(timezone.utc))
             date_str = created.strftime("%Y-%m-%d · %H:%M") if isinstance(created, datetime) else str(created)[:16]
             st.markdown(f"""
@@ -613,14 +614,14 @@ if st.session_state.page == "crm" and has_crm_access:
                     </div>
                     <div style="font-size:12px;color:#9ca3af;">{date_str}</div>
                 </div>
-                <div class="lead-field"><span class="lead-label">📞 رقم التواصل</span><span class="lead-value">{lead.get('phone', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">✉️ البريد</span><span class="lead-value">{lead.get('email', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📍 المدينة / الدولة</span><span class="lead-value">{lead.get('city', '—')}، {lead.get('country', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">🗣️ اللغة / اللهجة</span><span class="lead-value">{lead.get('language', '—')} / {lead.get('dialect', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📚 المنتجات محل الاهتمام</span><span class="lead-value"><span class="badge badge-products">{lead.get('products', '—')}</span></span></div>
-                <div class="lead-field"><span class="lead-label">🎯 الهدف</span><span class="lead-value">{lead.get('goal', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📊 المستوى الحالي</span><span class="lead-value">{lead.get('level', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">💡 إشارات الشراء</span><span class="lead-value"><span class="badge badge-signals">{lead.get('buying_signals', '—')}</span></span></div>
+                <div class="lead-field"><span class="lead-label">📞 رقم التواصل</span><span class="lead-value" style="color:white">{lead.get('phone', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">✉️ البريد</span><span class="lead-value" style="color:white">{lead.get('email', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">📍 المدينة / الدولة</span><span class="lead-value" style="color:white">{lead.get('city', '—')}، {lead.get('country', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">🗣️ اللغة / اللهجة</span><span class="lead-value" style="color:white">{lead.get('language', '—')} / {lead.get('dialect', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">📚 المنتجات محل الاهتمام</span><span class="lead-value" style="color:white"><span class="badge badge-products">{lead.get('products', '—')}</span></span></div>
+                <div class="lead-field"><span class="lead-label">🎯 الهدف</span><span class="lead-value" style="color:white">{lead.get('goal', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">📊 المستوى الحالي</span><span class="lead-value" style="color:white">{lead.get('level', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">💡 إشارات الشراء</span><span class="lead-value" style="color:white"><span class="badge badge-signals">{lead.get('buying_signals', '—')}</span></span></div>
                 <div class="lead-summary">
                     <p><strong>📝 ملخص المحادثة:</strong> {lead.get('summary', '—')}</p>
                     <p style="margin-top:8px"><strong>📌 الإجراء التالي:</strong> {lead.get('next_action', '—')}</p>
