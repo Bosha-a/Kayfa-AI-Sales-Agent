@@ -19,17 +19,17 @@ from bson.objectid import ObjectId
 from dataclasses import dataclass
 import base64
 import pandas as pd
-from auth import login_form, ROLE_PERMISSIONS
+from auth import render_login, ROLE_PERMISSIONS
 
 st.set_page_config(page_title="Kayfa Agent", page_icon="🤖", layout="wide")
 
 if "authenticated" not in st.session_state or not st.session_state.authenticated:
-    login_form()
+    render_login()
     st.stop()
 
 user_role = st.session_state.user["role"]
 perms = ROLE_PERMISSIONS.get(user_role, {})
-if not perms.get("chat") and not perms.get("crm"):
+if not perms.get("chat") and not perms.get("crm") and not perms.get("dashboard"):
     st.error("No permissions assigned.")
     if st.button("Logout"):
         st.session_state.clear()
@@ -38,6 +38,7 @@ if not perms.get("chat") and not perms.get("crm"):
 
 has_crm_access = perms.get("crm", False)
 has_chat_access = perms.get("chat", False)
+has_dashboard_access = perms.get("dashboard", False)
 
 color = '#2D3BE0'
 ARABIC_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
@@ -249,11 +250,16 @@ groq_api_key = st.secrets.get("GROQ_API_KEY")
 mongo_client = MongoClient(mongo_uri, tls=True, tlsCAFile=certifi.where())
 messages = mongo_client.kayfa.messages
 messages.create_index([("session_id", ASCENDING), ("timestamp", ASCENDING)])
+messages.create_index([("username", ASCENDING)])
+
+def _current_user():
+    return st.session_state.get("user", {}).get("username", "anonymous")
 
 def save_turn(session_id, role, content):
     messages.insert_one({
         "session_id": session_id, "role": role,
         "content": content, "timestamp": datetime.now(timezone.utc),
+        "username": _current_user(),
     })
 
 def load_session(session_id):
@@ -262,14 +268,19 @@ def load_session(session_id):
 
 sessions_coll = mongo_client.kayfa.sessions
 sessions_coll.create_index([("updated_at", ASCENDING)])
+sessions_coll.create_index([("username", ASCENDING)])
 
 def create_session(name="New Chat"):
-    doc = {"name": name, "created_at": datetime.now(timezone.utc), "updated_at": datetime.now(timezone.utc)}
+    doc = {
+        "name": name, "username": _current_user(),
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
     result = sessions_coll.insert_one(doc)
     return str(result.inserted_id)
 
 def get_all_sessions():
-    cursor = sessions_coll.find().sort("updated_at", DESCENDING)
+    cursor = sessions_coll.find({"username": _current_user()}).sort("updated_at", DESCENDING)
     return [(str(doc["_id"]), doc.get("name", "Chat")) for doc in cursor]
 
 def rename_session(session_id, name):
@@ -310,10 +321,8 @@ You are an AI Sales Agent for **Kayfa**, a leading Arabic educational platform o
 - If the knowledge base doesn't have the answer, say so honestly and offer to connect the visitor with the Kayfa team at info@kayfa.io
 - A sales agent that hallucinates is worse than useless
 
-Fallback when knowledge base has no answer
-Say exactly this (in the visitor's language):
+Fallback when knowledge base has no answer:
 Arabic: "للأسف ما عندي معلومات كافية عن هذا الموضوع الآن، لكن فريق كيف سيجيبك بشكل مباشر — تواصل معهم على info@kayfa.io أو عبر واتساب، وسأساعدك في التواصل الآن."
-
 English: "I don't have enough information on that right now, but the Kayfa team can help you directly. You can reach them at info@kayfa.io — would you like me to connect you?"
 Then offer to capture their contact info and create a support ticket.
 
@@ -331,7 +340,7 @@ Then offer to capture their contact info and create a support ticket.
 2. **RECOMMEND** — Map their goal to real Kayfa products using the knowledge base. Right product, right level, right price.
 3. **PERSUADE** — Frame value using real social proof (instructors, partners, accreditation). Handle objections honestly.
 4. **UPSELL** — Start where they're comfortable (free content or individual courses). Guide warm leads upward toward tracks and live diplomas where it genuinely fits.
-5. **CAPTURE** — When buying signals appear, pivot naturally to collecting contact details and create a CRM ticket.
+5. **CAPTURE** — When buying signals appear, pivot naturally to collecting missing conversation details, then call capture_lead().
 
 
 # Product Tiers (from cheapest to most valuable)
@@ -350,28 +359,27 @@ Then offer to capture their contact info and create a support ticket.
 - Comparing specific options seriously (e.g., SOC track vs diploma)
 - Asking about refunds or guarantees (shows purchase intent)
 
-When you detect these, naturally ask for their name, phone/WhatsApp, city, and goal. Then call `capture_lead()` with ALL gathered information. Make it conversational — not like filling a form.
 
+# WHAT TO PASS TO capture_lead() — SIGNED-IN USERS
+You MUST collect BOTH name AND phone before calling before calling capture_lead():
+- **name**: their full name — ask naturally e.g. "بأي اسم أناديك؟" or "What's your name?"
+- **phone**: their phone number with country code — ask naturally e.g. "ما رقم تواصلك؟" or "What's the best number to reach you?"
+- **products**: the specific course, track, or diploma they are interested in
+- **goal**: their motivation or what they want to achieve
+- **level**: their current skill level (beginner / intermediate / advanced)
 
-# WHAT TO PASS TO capture_lead() — CRITICAL RULE
-NEVER call capture_lead() unless you have BOTH of these:
-1. name — the visitor's name (any form: first name is enough)
-2. phone — a phone or WhatsApp number
-3. products = the specific course, track, or diploma they are interested in (if they mentioned one)
-4. level: current skill level (beginner / intermediate / advanced)
- 
-If you are missing either one, keep the conversation going and ask for it naturally before calling the function. Do not call capture_lead() with a placeholder or empty value for name or phone.
- 
-All other fields are optional and should be filled if the visitor shared them:
-- name: full name
-- email: email (if shared)
-- city / country: location
-- language / dialect: preferred language and dialect
-- products: specific courses, tracks, or diplomas discussed
-- goal: their motivation or what they want to achieve
-- level: current skill level (beginner / intermediate / advanced)
-- buying_signals: what signals they showed (e.g. asked about price, asked about dates)
-- summary: a short Arabic narrative of the conversation
+## Rules - READ CAREFULLY:
+- Collect name and phone conversationally — never ask for both at once, weave them into the conversation naturally
+- Do NOT ask name/phone until you detect at least 1 buying signal
+- NEVER call capture_lead() with only name and no phone, or only phone and no name — both are required together, no exceptions 
+- If you have buying signals but missing fields, gather them one at a time in a natural flow
+- ❌ NEVER call capture_lead() without name
+- ❌ NEVER call capture_lead() without phone
+- ❌ NEVER call capture_lead() with name only and phone missing
+- ❌ NEVER call capture_lead() with phone only and name missing
+- ✅ ONLY call capture_lead() when you have BOTH name AND phone confirmed by the user
+- If the user refuses to give name or phone, do NOT create a ticket — just continue helping them normally
+- If you are not 100% sure you have both name and phone, do NOT call capture_lead()
 
 
 # Handling Off-Topic Questions
@@ -459,9 +467,37 @@ def search_kayfa_knowledge_base(ctx: RunContext[Dependencies], query: str, limit
     return ctx.deps.rag.search(query)
 
 @agent.tool
-def capture_lead(ctx: RunContext[Dependencies], name: str, phone: str, email: str = "", city: str = "", country: str = "", language: str = "", dialect: str = "", products: str = "", goal: str = "", level: str = "", buying_signals: str = "", summary: str = "") -> str:
-    return save_lead(name=name, phone=phone, email=email, city=city, country=country, language=language, dialect=dialect, products=products, goal=goal, level=level, buying_signals=buying_signals, summary=summary)
+def capture_lead(ctx: RunContext[Dependencies], name: str = "", phone: str = "", 
+                country: str = "", language: str = "", dialect: str = "", products: str = "", 
+                 goal: str = "", level: str = "", buying_signals: str = "", 
+                 summary: str = "") -> str:
 
+    name = name.strip() if name else ""
+    phone = phone.strip() if phone else ""
+
+    # اتحقق من الاسم
+    if not name or name in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
+        return "❌ BLOCKED. Name is missing. Do NOT call this function again until the user provides their full name. Ask them now: 'بأي اسم أناديك؟'"
+
+    # اتحقق من الرقم
+    if not phone or phone in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
+        return f"❌ BLOCKED. You have the name ({name}) but phone is missing. Do NOT call this function again until the user provides their phone number. Ask them now: 'ما رقم تواصلك؟'"
+
+    # اتحقق إن الرقم فيه أرقام فعلاً
+    digits = phone.replace("+", "").replace(" ", "").replace("-", "")
+    if not digits.isdigit() or len(digits) < 7:
+        return f"❌ BLOCKED. Phone number ({phone}) is invalid. Ask the user for a valid phone number with country code."
+
+    user = st.session_state.get("user", {})
+    if not country:
+        country = user.get("country", "")
+
+    return save_lead(
+        name=name, phone=phone, country=country,
+        language=language, dialect=dialect,
+        products=products, goal=goal, level=level,
+        buying_signals=buying_signals, summary=summary
+    )
 deps = Dependencies(rag=rag_service)
 
 if "sessions" not in st.session_state:
@@ -478,10 +514,15 @@ for sid in st.session_state.sessions:
     st.session_state.sessions[sid].setdefault("model_history", [])
 
 if "page" not in st.session_state:
-    st.session_state.page = "crm" if has_crm_access and not has_chat_access else "chat"
+    if has_dashboard_access:
+        st.session_state.page = "dashboard"
+    elif has_crm_access and not has_chat_access:
+        st.session_state.page = "crm"
+    else:
+        st.session_state.page = "chat"
 
 if st.session_state.page == "chat" and not has_chat_access:
-    st.session_state.page = "crm"
+    st.session_state.page = "crm" if has_crm_access else "dashboard"
     st.rerun()
 
 with st.sidebar:
@@ -496,6 +537,10 @@ with st.sidebar:
     if has_chat_access:
         if st.button("💬  Chat", key="nav_chat", use_container_width=True):
             st.session_state.page = "chat"
+            st.rerun()
+    if has_dashboard_access:
+        if st.button("📊  Dashboard", key="nav_dashboard", use_container_width=True):
+            st.session_state.page = "dashboard"
             st.rerun()
     if has_crm_access:
         if st.button("📋  CRM", key="nav_crm", use_container_width=True):
@@ -536,7 +581,11 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-if st.session_state.page == "crm" and has_crm_access:
+if st.session_state.page == "dashboard" and has_dashboard_access:
+    st.title("Dashboard")
+    st.markdown("<p style='color:#9ca3af;font-size:14px;'>Monitoring dashboard — coming soon.</p>", unsafe_allow_html=True)
+
+elif st.session_state.page == "crm" and has_crm_access:
     
     st.markdown(f"""
     <style>
@@ -666,6 +715,10 @@ if st.session_state.page == "crm" and has_crm_access:
     st.markdown('<div style="text-align:center;padding:30px 0 10px;font-size:13px;color:#6b7280;">All Tickets are stored in Database</div>', unsafe_allow_html=True)
 
 else:
+    rag_service = rag_service
+    agent = agent
+    deps = deps
+
     st.title("Kayfa Agent")
     sid = st.session_state.current_session
     chat_messages = st.session_state.sessions[sid]["messages"]
