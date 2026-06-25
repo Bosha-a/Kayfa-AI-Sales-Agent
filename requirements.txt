@@ -12,3 +12,5 @@ torch
 torchvision
 certifi
 dnspython
+plotly
+pandas
