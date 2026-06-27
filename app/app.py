@@ -27,6 +27,7 @@ from auth import render_login, ROLE_PERMISSIONS
 from dashboard import render_monitoring_dashboard
 from chat import render_chat_page
 from crm import render_crm_page
+from optimizations import SemanticCache, route_query
 from PIL import Image as _PILImage
 
 
@@ -328,6 +329,17 @@ def delete_session(session_id):
 crm_coll = mongo_client.kayfa.crm_tickets
 crm_coll.create_index([("created_at", DESCENDING)])
 
+@st.cache_resource
+@st.cache_resource(show_spinner=False)
+def load_models():
+    sparse = SparseTextEmbedding(model_name="Qdrant/bm25")
+    dense = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device='cpu')
+    return sparse, dense
+
+sparse_model, dense_model = load_models()
+
+semantic_cache = SemanticCache(mongo_db=mongo_client.kayfa, dense_model=dense_model)
+
 # Usage logs collection for monitoring
 usage_logs = mongo_client.kayfa.usage_logs
 usage_logs.create_index([("conversation_id", ASCENDING), ("timestamp", ASCENDING)])
@@ -405,6 +417,8 @@ def save_lead(**kw) -> str:
     kw["created_at"] = datetime.now(UTC_PLUS_3)
     result = crm_coll.insert_one(kw)
     return f"✅ Lead saved — ticket ID: {result.inserted_id}"
+
+    
 
 client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key, cloud_inference=True)
 
@@ -506,15 +520,6 @@ Always try to bridge back to a relevant Kayfa product when possible.
 - If asked off-topic questions, politely redirect to Kayfa's educational offerings
 """
 
-@st.cache_resource
-@st.cache_resource(show_spinner=False)
-def load_models():
-    sparse = SparseTextEmbedding(model_name="Qdrant/bm25")
-    dense = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device='cpu')
-    return sparse, dense
-
-sparse_model, dense_model = load_models()
-
 class RAGService:
     def __init__(self, client, dense_embedder, sparse_embedder):
         self.client = client
@@ -584,10 +589,9 @@ class Dependencies:
     rag: any
 
 model = GroqModel("openai/gpt-oss-20b", provider=GroqProvider(api_key=groq_api_key))
+model_strong = GroqModel("openai/gpt-oss-120b", provider=GroqProvider(api_key=groq_api_key))
 
-agent = Agent(model, deps_type=Dependencies, system_prompt=SYSTEM_PROMPT)
 
-@agent.tool
 def search_kayfa_knowledge_base(ctx: RunContext[Dependencies], query: str, limit: int=5) -> str:
     start_time = time.time()
     context, sources, result_count, result_preview = ctx.deps.rag.search_with_trace(query, limit=limit)
@@ -617,7 +621,7 @@ def search_kayfa_knowledge_base(ctx: RunContext[Dependencies], query: str, limit
     )
     return context
 
-@agent.tool
+
 def capture_lead(ctx: RunContext[Dependencies], name: str = "", phone: str = "", 
                 country: str = "", language: str = "", products: str = "", 
                  goal: str = "", level: str = "", buying_signals: str = "", 
@@ -626,15 +630,12 @@ def capture_lead(ctx: RunContext[Dependencies], name: str = "", phone: str = "",
     name = name.strip() if name else ""
     phone = phone.strip() if phone else ""
 
-    # اتحقق من الاسم
     if not name or name in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
         return "BLOCKED. Name is missing. Do NOT call this function again until the user provides their full name. Ask them now: 'بأي اسم أناديك؟'"
 
-    # اتحقق من الرقم
     if not phone or phone in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
         return f"BLOCKED. You have the name ({name}) but phone is missing. Do NOT call this function again until the user provides their phone number. Ask them now: 'ما رقم تواصلك؟'"
 
-    # اتحقق إن الرقم فيه أرقام فعلاً
     digits = phone.replace("+", "").replace(" ", "").replace("-", "")
     if not digits.isdigit() or len(digits) < 7:
         return f"BLOCKED. Phone number ({phone}) is invalid. Ask the user for a valid phone number with country code."
@@ -650,6 +651,12 @@ def capture_lead(ctx: RunContext[Dependencies], name: str = "", phone: str = "",
         products=products, goal=goal, level=level,
         buying_signals=buying_signals, summary=summary
     )
+
+
+_agent_tools = [search_kayfa_knowledge_base, capture_lead]
+
+agent = Agent(model, deps_type=Dependencies, system_prompt=SYSTEM_PROMPT, tools=_agent_tools)
+agent_strong = Agent(model_strong, deps_type=Dependencies, system_prompt=SYSTEM_PROMPT, tools=_agent_tools)
 deps = Dependencies(rag=rag_service)
 
 if "sessions" not in st.session_state:
@@ -742,7 +749,7 @@ elif st.session_state.page == "crm" and has_crm_access:
 
 else:
     render_chat_page(
-        agent=agent,
+        agents={"openai/gpt-oss-20b": agent, "openai/gpt-oss-120b": agent_strong},
         deps=deps,
         save_turn=save_turn,
         rename_session=rename_session,
@@ -753,4 +760,6 @@ else:
         calculate_cost=calculate_cost,
         SYSTEM_PROMPT=SYSTEM_PROMPT,
         assistant_avatar=_kayfa_chat_icon,
+        semantic_cache=semantic_cache,
+        route_query=route_query,
     )
