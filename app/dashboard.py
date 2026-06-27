@@ -174,11 +174,14 @@ def _build_llm_vs_embedding_chart(usage_logs):
 def _build_latency_vs_cost_scatter(usage_logs):
     """Chart 4 — Scatter: latency vs cost per message."""
     pipeline = [
-        {"$match": {"latency_ms": {"$gt": 0}}},
+        {"$match": {
+            "latency_ms": {"$gt": 0},
+            "username": {"$nin": [None, "", "unknown"]},
+        }},
         {"$project": {
             "_id": 0,
             "message_id": {"$ifNull": ["$message_id", {"$toString": "$_id"}]},
-            "username": {"$ifNull": ["$username", "unknown"]},
+            "username": 1,
             "cost_usd": {"$ifNull": ["$cost_usd", 0]},
             "latency_ms": {"$ifNull": ["$latency_ms", 0]},
             "step_type": {"$ifNull": ["$step_type", "other"]},
@@ -233,6 +236,9 @@ def render_monitoring_dashboard(usage_logs):
     st.title("Monitoring Dashboard")
     st.markdown("<p style='color:#9ca3af;font-size:14px;'>Cost, tokens, latency, and response traces from MongoDB.</p>", unsafe_allow_html=True)
 
+    if st.button("🔄 Refresh Data", key="dash_refresh"):
+        st.rerun()
+
     total_doc = next(usage_logs.aggregate([
         {"$group": {
             "_id": None,
@@ -240,6 +246,7 @@ def render_monitoring_dashboard(usage_logs):
             "total_tokens": {"$sum": {"$ifNull": ["$total_tokens", 0]}},
             "calls": {"$sum": 1},
             "avg_latency_ms": {"$avg": {"$ifNull": ["$latency_ms", 0]}},
+            "last_updated": {"$max": "$timestamp"},
         }}
     ]), None)
     if not total_doc:
@@ -267,11 +274,17 @@ def render_monitoring_dashboard(usage_logs):
     with cols[3]:
         st.markdown(f'<div class="stats-box"><div class="stats-number">{int(total_doc.get("avg_latency_ms", 0) or 0):,} ms</div><div class="stats-label">Avg Latency</div></div>', unsafe_allow_html=True)
 
+    last_updated = total_doc.get("last_updated")
+    if last_updated:
+        time_str = last_updated.strftime("%Y-%m-%d %H:%M:%S") if hasattr(last_updated, "strftime") else str(last_updated)
+        st.caption(f"Last updated: {time_str}")
+
     tab_charts, tab_user, tab_conversation, tab_message, tab_trace, tab_opt = st.tabs([
-        "📈 Charts", "Per User", "Per Conversation", "Per Message", "Trace Replay", "Optimization"
+        "Charts", "Per User", "Per Conversation", "Per Message", "Trace Replay", "Optimization"
     ])
 
     user_rollup = list(usage_logs.aggregate([
+        {"$match": {"username": {"$nin": [None, "", "unknown"]}}},
         {"$group": {
             "_id": {"user_id": "$user_id", "username": "$username"},
             "cost_usd": {"$sum": {"$ifNull": ["$cost_usd", 0]}},
@@ -281,8 +294,8 @@ def render_monitoring_dashboard(usage_logs):
         }},
         {"$project": {
             "_id": 0,
-            "user_id": {"$ifNull": ["$_id.user_id", "unknown"]},
-            "username": {"$ifNull": ["$_id.username", "unknown"]},
+            "user_id": "$_id.user_id",
+            "username": "$_id.username",
             "cost_usd": 1,
             "total_tokens": 1,
             "calls": 1,
@@ -293,6 +306,7 @@ def render_monitoring_dashboard(usage_logs):
     ]))
 
     conversation_rollup = list(usage_logs.aggregate([
+        {"$match": {"username": {"$nin": [None, "", "unknown"]}}},
         {"$group": {
             "_id": {"conversation_id": "$conversation_id", "username": "$username"},
             "cost_usd": {"$sum": {"$ifNull": ["$cost_usd", 0]}},
@@ -303,8 +317,8 @@ def render_monitoring_dashboard(usage_logs):
         }},
         {"$project": {
             "_id": 0,
-            "conversation_id": {"$ifNull": ["$_id.conversation_id", ""]},
-            "username": {"$ifNull": ["$_id.username", "unknown"]},
+            "conversation_id": "$_id.conversation_id",
+            "username": "$_id.username",
             "cost_usd": 1,
             "total_tokens": 1,
             "calls": 1,
@@ -316,6 +330,7 @@ def render_monitoring_dashboard(usage_logs):
     ]))
 
     message_rollup = list(usage_logs.aggregate([
+        {"$match": {"username": {"$nin": [None, "", "unknown"]}}},
         {"$group": {
             "_id": {
                 "message_id": {"$ifNull": ["$message_id", {"$toString": "$_id"}]},
@@ -331,8 +346,8 @@ def render_monitoring_dashboard(usage_logs):
         {"$project": {
             "_id": 0,
             "message_id": "$_id.message_id",
-            "conversation_id": {"$ifNull": ["$_id.conversation_id", ""]},
-            "username": {"$ifNull": ["$_id.username", "unknown"]},
+            "conversation_id": "$_id.conversation_id",
+            "username": "$_id.username",
             "cost_usd": 1,
             "total_tokens": 1,
             "calls": 1,
@@ -435,8 +450,8 @@ def render_monitoring_dashboard(usage_logs):
                 card_cols = st.columns(card_cols_count)
                 for idx, user in enumerate(row_items):
                     with card_cols[idx]:
-                        uname = user.get("username", "unknown")
-                        initials = "".join(w[0] for w in uname.split()[:2]).upper() if uname != "unknown" else "?"
+                        uname = user.get("username", "")
+                        initials = "".join(w[0] for w in uname.split()[:2]).upper() or "?"
                         cost = float(user.get("cost_usd", 0) or 0)
                         tokens = int(user.get("total_tokens", 0) or 0)
                         calls = int(user.get("calls", 0) or 0)
@@ -576,7 +591,7 @@ def render_monitoring_dashboard(usage_logs):
             for conv in conversation_rollup:
                 conv_id = conv.get("conversation_id", "—")
                 short_id = conv_id[:12] + "…" if len(conv_id) > 12 else conv_id
-                uname = conv.get("username", "unknown")
+                uname = conv.get("username", "")
                 cost = float(conv.get("cost_usd", 0) or 0)
                 tokens = int(conv.get("total_tokens", 0) or 0)
                 calls = int(conv.get("calls", 0) or 0)
@@ -627,7 +642,7 @@ def render_monitoring_dashboard(usage_logs):
                 short_msg_id = msg_id[:12] + "…" if len(msg_id) > 12 else msg_id
                 conv_id = msg.get("conversation_id", "—")
                 short_conv_id = conv_id[:10] + "…" if len(conv_id) > 10 else conv_id
-                uname = msg.get("username", "unknown")
+                uname = msg.get("username", "")
                 cost = float(msg.get("cost_usd", 0) or 0)
                 tokens = int(msg.get("total_tokens", 0) or 0)
                 calls = int(msg.get("calls", 0) or 0)
