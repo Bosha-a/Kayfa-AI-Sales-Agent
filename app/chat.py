@@ -62,30 +62,54 @@ def render_chat_page(agents, deps, save_turn, rename_session, dir_class, esc,
                     selected_model = route_query(prompt, model_history) if route_query else "openai/gpt-oss-20b"
                     active_agent = agents[selected_model]
 
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        loop = None
-                    if loop and loop.is_running():
-                        import nest_asyncio
-                        nest_asyncio.apply()
-                        result = loop.run_until_complete(active_agent.run(prompt, deps=deps, message_history=model_history))
-                    else:
-                        result = asyncio.run(active_agent.run(prompt, deps=deps, message_history=model_history))
+                    # Run the async agent in a dedicated thread so it gets a clean,
+                    # unpatched event loop.  This avoids the nest_asyncio / Tornado
+                    # interaction that breaks on Streamlit Cloud.
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                        _future = _pool.submit(
+                            asyncio.run,
+                            active_agent.run(prompt, deps=deps, message_history=model_history),
+                        )
+                        result = _future.result()
+
                     latency_ms = int((time.time() - start_time) * 1000)
 
+                # --- Safe token extraction -------------------------------------------
+                # pydantic-ai has renamed Usage fields across versions:
+                #   input_tokens  (current)   vs  request_tokens  (older)
+                #   output_tokens (current)   vs  response_tokens (older)
+                # .usage() may also return None on some provider/version combos.
+                # Using getattr with fallback ensures we never store None in MongoDB.
                 try:
                     usage = result.usage()
-                    input_tokens = usage.input_tokens
-                    output_tokens = usage.output_tokens
-                except Exception:
+                    print(f"[DEBUG chat] usage={usage}, type={type(usage)}")
+                    if usage is None:
+                        input_tokens = output_tokens = 0
+                    else:
+                        input_tokens = int(
+                            getattr(usage, "input_tokens", None)
+                            or getattr(usage, "request_tokens", None)
+                            or 0
+                        )
+                        output_tokens = int(
+                            getattr(usage, "output_tokens", None)
+                            or getattr(usage, "response_tokens", None)
+                            or 0
+                        )
+                except Exception as _e:
+                    print(f"[DEBUG chat] result.usage() raised {type(_e).__name__}: {_e}")
                     input_tokens = output_tokens = 0
+
+                print(f"[DEBUG chat] input_tokens={input_tokens}, output_tokens={output_tokens}, model={selected_model}")
 
                 full_history_text = "\n".join(
                     f"{msg.get('role', '')}: {msg.get('content', '')}" for msg in chat_messages
                 )
                 baseline_input_tokens = approximate_tokens(SYSTEM_PROMPT) + approximate_tokens(full_history_text)
-                baseline_cost = calculate_cost("groq", "openai/gpt-oss-20b", baseline_input_tokens, output_tokens)
+                # Fix: use selected_model (not hardcoded "openai/gpt-oss-20b") so the
+                # pricing lookup is correct when the strong model is routed.
+                baseline_cost = calculate_cost("groq", selected_model, baseline_input_tokens, output_tokens)
 
                 tool_calls = []
                 tool_results = []
@@ -139,7 +163,24 @@ def render_chat_page(agents, deps, save_turn, rename_session, dir_class, esc,
                 )
                 st.session_state.pop("current_message_id", None)
 
-                st.session_state.sessions[sid]["model_history"] = result.all_messages()[-5:]
+                # Serialize ModelMessage objects to plain dicts before storing in
+                # session state.  Streamlit Cloud may use a cross-process session
+                # store that requires JSON-serializable values; pydantic-ai
+                # ModelMessage objects are pydantic models, not plain dicts.
+                raw_history = result.all_messages()[-5:]
+                safe_history = []
+                for _m in raw_history:
+                    try:
+                        if hasattr(_m, "model_dump"):
+                            safe_history.append(_m.model_dump())
+                        elif hasattr(_m, "dict"):
+                            safe_history.append(_m.dict())
+                        else:
+                            safe_history.append(_m)
+                    except Exception:
+                        safe_history.append(_m)
+                st.session_state.sessions[sid]["model_history"] = safe_history
+
                 st.markdown(result.output)
                 result_output = result.output
 

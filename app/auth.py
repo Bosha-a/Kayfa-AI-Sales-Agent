@@ -47,10 +47,11 @@ COUNTRIES = {
     "Other": "",
 }
 
-with open("./images/kayfa.png", "rb") as f:
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(_ROOT, "images", "kayfa.png"), "rb") as f:
     LOGO_B64 = base64.b64encode(f.read()).decode()
 
-with open("./images/kayfa_icon.png", "rb") as f:
+with open(os.path.join(_ROOT, "images", "kayfa_icon.png"), "rb") as f:
     ICON_B64 = base64.b64encode(f.read()).decode()
 
 

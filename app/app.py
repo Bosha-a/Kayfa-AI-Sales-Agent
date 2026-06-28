@@ -70,9 +70,10 @@ def esc(value) -> str:
 def approximate_tokens(text: str) -> int:
     return max(1, len(str(text or "")) // 4)
 
-with open("./images/kayfa.png", "rb") as f:
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(_ROOT, "images", "kayfa.png"), "rb") as f:
     logo_b64 = base64.b64encode(f.read()).decode()
-with open("./images/kayfa_icon.png", "rb") as f:
+with open(os.path.join(_ROOT, "images", "kayfa_icon.png"), "rb") as f:
     icon_b64 = base64.b64encode(f.read()).decode()
 
 
@@ -329,7 +330,6 @@ def delete_session(session_id):
 crm_coll = mongo_client.kayfa.crm_tickets
 crm_coll.create_index([("created_at", DESCENDING)])
 
-@st.cache_resource
 @st.cache_resource(show_spinner=False)
 def load_models():
     sparse = SparseTextEmbedding(model_name="Qdrant/bm25")
@@ -481,8 +481,8 @@ Then offer to capture their contact info and create a support ticket.
 
 # WHAT TO PASS TO capture_lead() — SIGNED-IN USERS
 You MUST collect BOTH name AND phone before calling before calling capture_lead():
-- **name**: their full name — ask naturally e.g. "بأي اسم أناديك؟" or "What's your name?"
-- **phone**: their phone number with country code — ask naturally e.g. "ما رقم تواصلك؟" or "What's the best number to reach you?"
+- **name**: their full name — ask naturally e.g. "بأي اسم أناديك؟" if arabic or "What's your name?" if english 
+- **phone**: their phone number with country code — ask naturally e.g. "ما رقم تواصلك؟" if arabic or "What's the best number to reach you?" if english
 - **products**: the specific course, track, or diploma they are interested in
 - **goal**: their motivation or what they want to achieve
 - **level**: their current skill level (beginner / intermediate / advanced)
