@@ -30,6 +30,12 @@ from crm import render_crm_page
 from optimizations import SemanticCache, route_query
 from PIL import Image as _PILImage
 
+try:
+    from genai_prices import Usage as GenAIUsage, calc_price as genai_calc_price
+except Exception:
+    GenAIUsage = None
+    genai_calc_price = None
+
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -347,10 +353,13 @@ usage_logs.create_index([("message_id", ASCENDING), ("timestamp", ASCENDING)])
 usage_logs.create_index([("user_id", ASCENDING), ("timestamp", ASCENDING)])
 usage_logs.create_index([("timestamp", ASCENDING)])
 
-# Pricing configuration (per 1M tokens)
-PRICING = {
+GENAI_PROVIDER_IDS = {
+    "groq": "groq",
+}
+
+# Local fallback pricing (per 1M tokens) for local tools or models missing from genai-prices.
+FALLBACK_PRICING = {
     "groq": {
-        # Groq pricing changes over time; keep these rates in one place so cost rollups stay auditable.
         "openai/gpt-oss-20b": {"input": 0.029, "output": 0.130},
         "openai/gpt-oss-120b": {"input": 0.039, "output": 0.180},
         "llama-3.1-70b-versatile": {"input": 0.59, "output": 0.79},
@@ -363,13 +372,47 @@ PRICING = {
     }
 }
 
-def calculate_cost(model_provider: str, model_name: str, input_tokens: int, output_tokens: int) -> float:
-    """Calculate cost for a model call."""
-    provider_pricing = PRICING.get(model_provider, {})
+def calculate_cost_details(model_provider: str, model_name: str, input_tokens: int, output_tokens: int) -> dict:
+    """Calculate usage cost and preserve the pricing source for auditability."""
+    safe_input = max(0, int(input_tokens or 0))
+    safe_output = max(0, int(output_tokens or 0))
+    provider_id = GENAI_PROVIDER_IDS.get(model_provider)
+
+    if provider_id and GenAIUsage and genai_calc_price:
+        try:
+            price = genai_calc_price(
+                GenAIUsage(input_tokens=safe_input, output_tokens=safe_output),
+                model_name,
+                provider_id=provider_id,
+            )
+            return {
+                "cost_usd": float(price.total_price),
+                "input_cost_usd": float(price.input_price),
+                "output_cost_usd": float(price.output_price),
+                "pricing_source": "genai-prices",
+                "pricing_provider_id": provider_id,
+            }
+        except Exception as exc:
+            pricing_error = f"{type(exc).__name__}: {exc}"
+    else:
+        pricing_error = "genai-prices unavailable" if provider_id else "local/free provider"
+
+    provider_pricing = FALLBACK_PRICING.get(model_provider, {})
     model_pricing = provider_pricing.get(model_name, provider_pricing.get("default", {"input": 0, "output": 0}))
-    input_cost = (input_tokens / 1_000_000) * model_pricing.get("input", 0)
-    output_cost = (output_tokens / 1_000_000) * model_pricing.get("output", 0)
-    return input_cost + output_cost
+    input_cost = (safe_input / 1_000_000) * model_pricing.get("input", 0)
+    output_cost = (safe_output / 1_000_000) * model_pricing.get("output", 0)
+    return {
+        "cost_usd": input_cost + output_cost,
+        "input_cost_usd": input_cost,
+        "output_cost_usd": output_cost,
+        "pricing_source": "fallback",
+        "pricing_provider_id": model_provider,
+        "pricing_error": pricing_error,
+    }
+
+def calculate_cost(model_provider: str, model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """Return only the total cost for existing UI call sites."""
+    return calculate_cost_details(model_provider, model_name, input_tokens, output_tokens)["cost_usd"]
 
 def log_usage(
     conversation_id: str,
@@ -387,7 +430,7 @@ def log_usage(
     trace_data: dict = None
 ):
     """Log usage to MongoDB for monitoring."""
-    cost = calculate_cost(model_provider, model_name, input_tokens, output_tokens)
+    cost_details = calculate_cost_details(model_provider, model_name, input_tokens, output_tokens)
     
     doc = {
         "conversation_id": conversation_id,
@@ -401,7 +444,12 @@ def log_usage(
         "output_tokens": output_tokens,
         "total_tokens": input_tokens + output_tokens,
 
-        "cost_usd": cost,
+        "cost_usd": cost_details["cost_usd"],
+        "input_cost_usd": cost_details.get("input_cost_usd", 0.0),
+        "output_cost_usd": cost_details.get("output_cost_usd", 0.0),
+        "pricing_source": cost_details.get("pricing_source", "unknown"),
+        "pricing_provider_id": cost_details.get("pricing_provider_id", model_provider),
+        "pricing_error": cost_details.get("pricing_error"),
         "tool_calls": tool_calls,
         "tool_results": tool_results,
 
@@ -414,6 +462,7 @@ def log_usage(
     return doc
 
 def save_lead(**kw) -> str:
+    kw["level"] = kw.get("level") or "مبتدئ"
     kw["created_at"] = datetime.now(UTC_PLUS_3)
     result = crm_coll.insert_one(kw)
     return f"✅ Lead saved — ticket ID: {result.inserted_id}"
@@ -479,13 +528,15 @@ Then offer to capture their contact info and create a support ticket.
 - Asking about refunds or guarantees (shows purchase intent)
 
 
-# WHAT TO PASS TO capture_lead() — SIGNED-IN USERS
-You MUST collect BOTH name AND phone before calling before calling capture_lead():
+# WHAT TO PASS TO capture_lead()
+- Match the visitor's language: if they speak Arabic → fill ALL fields in Arabic; if English → in English
+- You MUST collect BOTH name AND phone before calling capture_lead():
 - **name**: their full name — ask naturally e.g. "بأي اسم أناديك؟" if arabic or "What's your name?" if english 
 - **phone**: their phone number with country code — ask naturally e.g. "ما رقم تواصلك؟" if arabic or "What's the best number to reach you?" if english
 - **products**: the specific course, track, or diploma they are interested in
 - **goal**: their motivation or what they want to achieve
-- **level**: their current skill level (beginner / intermediate / advanced)
+- **level**: their current skill level (مبتدئ / متوسط / متقدم) if arabic or (beginner / intermediate / advanced) if english
+- **language**: the language the user is speaking (e.g. "العربية", "English") — detect it from the conversation
 
 
 ## Rules - READ CAREFULLY:
@@ -587,6 +638,7 @@ rag_service = RAGService(client=client, dense_embedder=dense_model, sparse_embed
 @dataclass
 class Dependencies:
     rag: any
+    conversation: list = None
 
 model = GroqModel("openai/gpt-oss-20b", provider=GroqProvider(api_key=groq_api_key))
 model_strong = GroqModel("openai/gpt-oss-120b", provider=GroqProvider(api_key=groq_api_key))
@@ -622,35 +674,140 @@ def search_kayfa_knowledge_base(ctx: RunContext[Dependencies], query: str, limit
     return context
 
 
+_LANGUAGE_MAP = {
+    "english": "الإنجليزية",
+    "arabic": "العربية",
+    "English": "الإنجليزية",
+    "Arabic": "العربية",
+}
+
+
+def _ensure_language_arabic(language: str) -> str:
+    """Convert language name to Arabic using the mapping."""
+    return _LANGUAGE_MAP.get(language, language)
+
+def _generate_summary(messages: list, sid: str = "") -> str:
+    """Summarize the chat conversation using Groq (Arabic).
+
+    Falls back to loading messages from MongoDB when the in-memory list is
+    empty (e.g. when called from inside a background thread where
+    st.session_state is unavailable).
+    """
+    # --- Fallback: load from DB when in-memory list is empty --------------------
+    if not messages and sid:
+        try:
+            msgs_cursor = mongo_client.kayfa.messages.find(
+                {"session_id": sid}
+            ).sort("timestamp", ASCENDING)
+            messages = [{"role": doc["role"], "content": doc["content"]} for doc in msgs_cursor]
+        except Exception:
+            pass
+
+    if not messages:
+        return ""
+
+    prompt_lines = [
+        "لخص المحادثة التالية بين العميل ووكيل مبيعات باللغة العربية في سطر واحد فقط."
+    ]
+
+    for m in messages:
+        role = "العميل" if m.get("role") == "user" else "وكيل المبيعات"
+        prompt_lines.append(f"{role}: {m.get('content', '')}")
+
+    if not groq_api_key:
+        return ""
+
+    try:
+        groq_http = __import__("groq", fromlist=["Groq"]).Groq(api_key=groq_api_key)
+        response = groq_http.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "أنت مساعد يقوم بتلخيص محادثات خدمة العملاء باللغة العربية في جملة واحدة فقط."
+                },
+                {
+                    "role": "user",
+                    "content": "\n".join(prompt_lines)
+                }
+            ],
+            temperature=0.2,
+            max_tokens=60,
+        )
+        return response.choices[0].message.content.strip()
+
+    except Exception as _e:
+        print(f"[_generate_summary] error: {_e}")
+        return ""
+
+
 def capture_lead(ctx: RunContext[Dependencies], name: str = "", phone: str = "", 
                 country: str = "", language: str = "", products: str = "", 
-                 goal: str = "", level: str = "", buying_signals: str = "", 
+                 goal: str = "", level: str = "", 
                  summary: str = "") -> str:
+    start_time = time.time()
 
     name = name.strip() if name else ""
     phone = phone.strip() if phone else ""
+    sid = st.session_state.get("current_session", "")
+    message_id = st.session_state.get("current_message_id", sid)
+    user = st.session_state.get("user", {})
+
+    def _log_capture_tool(result_text: str, blocked: bool = False):
+        log_usage(
+            conversation_id=sid,
+            message_id=message_id,
+            user_id=user.get("id") or user.get("username", "unknown"),
+            username=user.get("name", "unknown"),
+            model_provider="tool",
+            model_name="capture_lead",
+            input_tokens=approximate_tokens(" ".join(str(v or "") for v in [name, phone, country, language, products, goal, level, summary])),
+            output_tokens=approximate_tokens(result_text),
+            tool_calls=[{"tool": "capture_lead", "args": {"name": name, "phone": phone, "country": country, "language": language, "products": products, "goal": goal, "level": level}}],
+            tool_results=[{"tool": "capture_lead", "result": result_text[:500]}],
+            latency_ms=int((time.time() - start_time) * 1000),
+            step_type="tool_call",
+            trace_data={
+                "tool_calls": [{"tool": "capture_lead", "blocked": blocked}],
+                "tool_results": [{"tool": "capture_lead", "result": result_text[:500]}],
+            },
+        )
 
     if not name or name in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
-        return "BLOCKED. Name is missing. Do NOT call this function again until the user provides their full name. Ask them now: 'بأي اسم أناديك؟'"
+        result_text = "BLOCKED. Name is missing. Do NOT call this function again until the user provides their full name. Ask them now."
+        _log_capture_tool(result_text, blocked=True)
+        return result_text
 
     if not phone or phone in ("—", "-", "unknown", "غير معروف", "null", "none", ""):
-        return f"BLOCKED. You have the name ({name}) but phone is missing. Do NOT call this function again until the user provides their phone number. Ask them now: 'ما رقم تواصلك؟'"
+        result_text = f"BLOCKED. You have the name ({name}) but phone is missing. Do NOT call this function again until the user provides their phone number. Ask them now."
+        _log_capture_tool(result_text, blocked=True)
+        return result_text
 
     digits = phone.replace("+", "").replace(" ", "").replace("-", "")
     if not digits.isdigit() or len(digits) < 7:
-        return f"BLOCKED. Phone number ({phone}) is invalid. Ask the user for a valid phone number with country code."
+        result_text = f"BLOCKED. Phone number ({phone}) is invalid. Ask the user for a valid phone number with country code."
+        _log_capture_tool(result_text, blocked=True)
+        return result_text
 
     user = st.session_state.get("user", {})
     if not country:
         country = user.get("country", "")
 
-    return save_lead(
+    language = language.strip() if language else ""
+    language = _ensure_language_arabic(language)
+
+    groq_summary = _generate_summary(ctx.deps.conversation or [], sid=sid)
+    final_summary = groq_summary or summary
+
+    result_text = save_lead(
         user_id=_current_user_id(), username=_current_user(),
         name=name, phone=phone, country=country,
         language=language,
         products=products, goal=goal, level=level,
-        buying_signals=buying_signals, summary=summary
+        summary=final_summary
     )
+    _log_capture_tool(result_text)
+    return result_text
 
 
 _agent_tools = [search_kayfa_knowledge_base, capture_lead]
@@ -721,6 +878,8 @@ with st.sidebar:
         for sid in list(st.session_state.sessions.keys()):
             sdata = st.session_state.sessions[sid]
             label = sdata["name"][:30] + (".." if len(sdata["name"]) > 30 else "")
+            if sid == st.session_state.current_session:
+                label = f"> {label}"
             if st.button(label, key=f"sid_{sid}", use_container_width=True):
                 st.session_state.current_session = sid
                 st.rerun()
