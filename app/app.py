@@ -16,7 +16,7 @@ from qdrant_client.models import (
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from fastembed import SparseTextEmbedding
-from pydantic_ai import RunContext, Agent, ModelMessage
+from pydantic_ai import RunContext, Agent
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson.objectid import ObjectId
 from dataclasses import dataclass, asdict
