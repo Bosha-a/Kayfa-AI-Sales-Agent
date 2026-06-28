@@ -106,6 +106,7 @@ def render_crm_page(crm_coll, icon_b64):
             temp = lead.get("lead_temperature", "").strip().lower()
             temp_class = "temp-hot" if temp == "hot" else "temp-warm" if temp == "warm" else "temp-cold"
             temp_label = "Very Interested 🔥" if temp == "hot" else "Interested ☀️" if temp == "warm" else "Asking ❄️"
+            level = lead.get("level") or "مبتدئ"
             created = lead.get("created_at", datetime.now(timezone.utc))
             date_str = created.strftime("%Y-%m-%d · %H:%M") if isinstance(created, datetime) else str(created)[:16]
             st.markdown(f"""
@@ -119,15 +120,12 @@ def render_crm_page(crm_coll, icon_b64):
                 </div>
                 <div class="lead-field"><span class="lead-label">📞 رقم التواصل</span><span class="lead-value" style="color:white">{lead.get('phone', '—')}</span></div>
                 <div class="lead-field"><span class="lead-label">✉️ البريد</span><span class="lead-value" style="color:white">{lead.get('email', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📍 المدينة / الدولة</span><span class="lead-value" style="color:white">{lead.get('city', '—')}، {lead.get('country', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">🗣️ اللغة / اللهجة</span><span class="lead-value" style="color:white">{lead.get('language', '—')} / {lead.get('dialect', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📚 المنتجات محل الاهتمام</span><span class="lead-value" style="color:white"><span class="badge badge-products">{lead.get('products', '—')}</span></span></div>
+                <div class="lead-field"><span class="lead-label">📍 الدولة</span><span class="lead-value" style="color:white">{lead.get('country', '—')}</span></div>
+                <div class="lead-field"><span class="lead-label">🗣️ اللغة </span><span class="lead-value" style="color:white">{lead.get('language', '—')}</span></div>
                 <div class="lead-field"><span class="lead-label">🎯 الهدف</span><span class="lead-value" style="color:white">{lead.get('goal', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">📊 المستوى الحالي</span><span class="lead-value" style="color:white">{lead.get('level', '—')}</span></div>
-                <div class="lead-field"><span class="lead-label">💡 إشارات الشراء</span><span class="lead-value" style="color:white"><span class="badge badge-signals">{lead.get('buying_signals', '—')}</span></span></div>
+                <div class="lead-field"><span class="lead-label">📊 المستوى الحالي</span><span class="lead-value" style="color:white">{level}</span></div>
                 <div class="lead-summary">
                     <p><strong>📝 ملخص المحادثة:</strong> {lead.get('summary', '—')}</p>
-                    <p style="margin-top:8px"><strong>📌 الإجراء التالي:</strong> {lead.get('next_action', '—')}</p>
                 </div>
             </div>
             """, unsafe_allow_html=True)
