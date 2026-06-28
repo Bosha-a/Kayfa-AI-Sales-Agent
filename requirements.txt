@@ -14,3 +14,5 @@ certifi
 dnspython
 plotly
 pandas
+google-genai
+genai-prices==0.0.26
